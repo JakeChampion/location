@@ -1,0 +1,32 @@
+# This file describes a Fastly Compute package. To learn more visit:
+# https://developer.fastly.com/reference/fastly-toml/
+
+authors = ["jchampion@fastly.com"]
+description = ""
+language = "javascript"
+manifest_version = 3
+name = "location"
+service_id = "Nqo5BPEO3JUXgJpNafxrj2"
+
+[scripts]
+  build = "npm run build"
+
+[setup]
+
+  [setup.backends]
+
+    [setup.backends.fastly]
+      address = "api.fastly.com"
+      port = 443
+
+    [setup.backends.self]
+
+  [setup.secret_stores]
+
+    [setup.secret_stores.loc]
+      description = "loc"
+
+      [setup.secret_stores.loc.entries]
+
+        [setup.secret_stores.loc.entries.fastly-token]
+          description = "fastly-token"
