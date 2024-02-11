@@ -495,9 +495,9 @@
     <dialog id="dialog" class="overlay">
         <div class="overlay-content">
             <button id="share_location">Share My Location</a>
-            <button id="share_link">Share Link</button>
-            <hr>
-            <a href="/">New Session</a>
+                <button id="share_link">Share Link</button>
+                <hr>
+                <a href="/">New Session</a>
         </div>
         <form method="dialog"><button class="closebtn">&times;</button></form>
     </dialog>
@@ -1245,6 +1245,44 @@
         }]
 
 
+        let evtSource;
+        let url = new URL(window.location)
+        let searchParams = new URLSearchParams(url.hash.slice(1))
+        let channel = searchParams.get('channel')
+        let key = searchParams.get('key')
+        let newChannel = false;
+        if (key) {
+            key = await window.crypto.subtle.importKey(
+                "jwk",
+                {
+                    k: key,
+                    alg: "A128GCM",
+                    ext: true,
+                    key_ops: ["encrypt", "decrypt"],
+                    kty: "oct",
+                },
+                { name: "AES-GCM", length: 128 },
+                true, // extractable
+                ["decrypt", "encrypt"],
+            );
+        }
+        if (!channel || !key) {
+            newChannel = true;
+            channel = crypto.randomUUID()
+            searchParams.set('channel', channel)
+            key = await window.crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 128 },
+                true, // extractable
+                ["encrypt", "decrypt"],
+            );
+            const objectKey = (await window.crypto.subtle.exportKey("jwk", key)).k;
+            searchParams.set('key', objectKey)
+
+            url.hash = searchParams.toString()
+
+            history.pushState({}, "", url);
+        }
+
         // creating the view
         const view = new View({
             center: fromLonLat([5.8713, 45.6452]),
@@ -1289,7 +1327,7 @@
         let deltaMean = 500; // the geolocation sampling period mean in ms
 
         // Listen to position changes
-        geolocation.on('change', function () {
+        geolocation.on('change', async function () {
             const position = geolocation.getPosition();
             const accuracy = geolocation.getAccuracy();
             const heading = geolocation.getHeading() || 0;
@@ -1302,6 +1340,24 @@
                 deltaMean = (coords[len - 1][3] - coords[0][3]) / (len - 1);
             }
 
+            const data = {
+                position,
+                accuracy,
+                heading,
+                speed,
+                m,
+                deltaMean
+            }
+
+            const iv = new Uint8Array(12);
+            crypto.getRandomValues(iv);
+
+            const encrypted = new Uint8Array(await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                key,
+                new TextEncoder().encode(JSON.stringify(data)),
+            ));
+
             fetch(`/update`, {
                 method: 'POST',
                 headers: {
@@ -1309,19 +1365,14 @@
                 },
                 body: JSON.stringify({
                     channel,
-                    position,
-                    accuracy,
-                    heading,
-                    speed,
-                    m,
-                    deltaMean
+                    encrypted,
+                    iv
                 })
             })
         });
 
         geolocation.on('error', function () {
-            alert('geolocation error');
-            // FIXME we should remove the coordinates in positions
+            // TODO we should remove the coordinates in positions
         });
 
         // convert radians to degrees
@@ -1358,7 +1409,6 @@
             // only keep the 20 last coordinates
             positions.setCoordinates(positions.getCoordinates().slice(-20));
 
-            // FIXME use speed instead
             if (heading && speed) {
                 markerEl.src = '/geolocation_marker_heading.png';
             } else {
@@ -1451,19 +1501,6 @@
             // simulateBtn.disabled = 'disabled';
         }
 
-        let evtSource;
-        let url = new URL(window.location)
-        let searchParams = new URLSearchParams(url.hash)
-        let channel = searchParams.get('channel')
-        let newChannel = false;
-        if (!channel) {
-            newChannel = true;
-            channel = crypto.randomUUID()
-            searchParams.set('channel', channel)
-            url.hash = searchParams.toString()
-
-            history.pushState({}, "", url);
-        }
         const source = `/stream/sse?channel=${channel}`
 
         function setupEventSource() {
@@ -1514,25 +1551,36 @@
                     tileLayer.on('postrender', updateView);
                 }
             })
-            evtSource.addEventListener("update", (event) => {
-                const data = JSON.parse(event.data);
+            evtSource.addEventListener("update", async (event) => {
+                let { iv, encrypted } = JSON.parse(event.data);
+                iv = new Uint8Array(Object.values(iv))
+                encrypted = new Uint8Array(Object.values(encrypted))
+
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv },
+                    key,
+                    encrypted,
+                );
+                const decoded = new TextDecoder().decode(new Uint8Array(decrypted));
+                const data = JSON.parse(decoded);
+
                 let { position, accuracy, heading, speed, m, deltaMean } = data;
                 addPosition(position, heading, m, speed);
 
-                const html = [
-                    'Position: ' + position[0].toFixed(2) + ', ' + position[1].toFixed(2),
-                    'Accuracy: ' + accuracy,
-                    'Heading: ' + Math.round(radToDeg(heading)) + '&deg;',
-                    'Speed: ' + (speed * 3.6).toFixed(1) + ' km/h',
-                    'Delta: ' + Math.round(deltaMean) + 'ms',
-                ].join('<br />');
-                document.getElementById('info').innerHTML = html;
+                // const html = [
+                //     'Position: ' + position[0].toFixed(2) + ', ' + position[1].toFixed(2),
+                //     'Accuracy: ' + accuracy,
+                //     'Heading: ' + Math.round(radToDeg(heading)) + '&deg;',
+                //     'Speed: ' + (speed * 3.6).toFixed(1) + ' km/h',
+                //     'Delta: ' + Math.round(deltaMean) + 'ms',
+                // ].join('<br />');
+                // document.getElementById('info').innerHTML = html;
                 updateView()
             });
             evtSource.onerror = function (e) {
                 console.error(e)
                 evtSource.close();
-                // setupEventSource();
+                setupEventSource();
             };
         }
         setupEventSource();

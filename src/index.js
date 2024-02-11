@@ -69,9 +69,8 @@ async function publish(channel, event, data) {
 }
 
 app.post('/update', async (c) => {
-  const data = await c.req.json()
-  const {channel, position, accuracy, heading, speed, m, deltaMean} = data
-  return await publish(channel, 'update', { position, accuracy, heading, speed, m, deltaMean })
+  const {channel, iv, encrypted} = await c.req.json()
+  return await publish(channel, 'update', { iv, encrypted })
 })
 app.get('/stream/sse', c => {
   const channel = c.req.query('channel')
