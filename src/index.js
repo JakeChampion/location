@@ -9,6 +9,7 @@ import { logger } from 'hono/logger'
 import { includeBytes } from "fastly:experimental";
 
 const page = includeBytes('./src/index.html')
+const client = includeBytes('./src/client.js')
 
 function sleep(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds))
@@ -32,6 +33,14 @@ app.get('/', () => {
   return new Response(page, {
     headers: {
       "content-type": "text/html;charset=utf-8"
+    }
+  })
+})
+
+app.get('/client.js', () => {
+  return new Response(client, {
+    headers: {
+      "content-type": "application/javascript;charset=utf-8"
     }
   })
 })
